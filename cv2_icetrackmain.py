@@ -6,7 +6,7 @@ import sys
 import cv2
 import numpy as np
 
-from cv2_cartrackclass import VehicleCounter
+from cv2_icetrackclass_csrt_reset_drift import VehicleCounter
 from skimage.filters import threshold_otsu
 
 import matplotlib
@@ -36,6 +36,9 @@ LOG_TO_FILE = True
 BOUNDING_BOX_COLOUR = (255, 0, 0)
 CENTROID_COLOUR = (0, 0, 255)
 VEHICLES = None
+
+MEANDRIFT = np.zeros(2,list)
+
 
 
 
@@ -114,7 +117,7 @@ def get_centroid(x, y, w, h):
 
 
 
-def detect_vehicles(fg_mask,shape, frame_number):
+def detect_vehicles(fg_mask,shape, frame_number, frame):
     
     log = logging.getLogger("detect_vehicles")
 
@@ -181,9 +184,38 @@ def filter_mask(fg_mask):
 
 
 
+def drift(Vehicles):
+    global MEANDRIFT
+
+    drift_n = MEANDRIFT[0]
+    index_n = MEANDRIFT[1]
+    
+    for Vehicle in Vehicles:
+
+        vector_n1 = np.array(Vehicle.av_vector[0])
+        offset = ( vector_n1 -  drift_n) / (index_n + 1)
+        #update drift
+        drift_n += offset
+        index_n += 1
+        
+    MEANDRIFT[0] = drift_n
+    MEANDRIFT[1] = index_n
+
+
+
+
+
+####################        
+#################### 
+
+
+
+
+
 def process_frame(frame_number, frame, car_counter):
     
     global VEHICLES 
+    
     
     log = logging.getLogger("process_frame")
 
@@ -194,8 +226,8 @@ def process_frame(frame_number, frame, car_counter):
     #fg_mask = bg_subtractor.apply(frame, None, 0.01)
     
     grey = rgb2gray(processed)
-    otsu_thresh = threshold_otsu(grey)
-    fg_mask = grey<otsu_thresh*.9
+    otsu_thresh = threshold_otsu(grey)*1.1
+    fg_mask = grey<otsu_thresh
     
     #binary version
     fg_mask = invert(fg_mask)
@@ -212,11 +244,22 @@ def process_frame(frame_number, frame, car_counter):
     #fg_mask = filter_mask(fg_mask)
 
     #fg_mask = invert(fg_mask)
-    matches = detect_vehicles(fg_mask, frame.shape, frame_number)
+    matches = detect_vehicles(fg_mask, frame.shape, frame_number, frame)
 
 
     log.debug("Updating vehicle count...")
-    matches, VEHICLES = car_counter.update_count(matches, frame_number, processed)
+    VEHICLES = car_counter.update_count(matches, frame_number, fg_mask, processed)
+
+
+
+    matches = []
+    for veh in VEHICLES:
+        if veh.last_position[1] == frame_number:
+            matches.append((veh.last_contour, veh.last_position[0], veh.last_position[1]))
+    
+    
+
+
 
     log.debug("Found %d valid vehicle contours.", len(matches))
     for (i, match) in enumerate(matches):
@@ -323,10 +366,28 @@ def main():
     
     
     VEHICLES[:] = [ v for v in VEHICLES
-            if len(v.positions)>=3]
+            if len(v.positions)>=4]
+    
+    drift(VEHICLES)
+    
+    filtered_vehicles = []
+    for veh in VEHICLES:
+        vector = (np.array(veh.positions[-1][0])-np.array(veh.positions[0][0]))/len(veh.positions)
+        vector = (abs(vector[0]), vector[1])
+        if (vector[1]<veh.av_vector[0][1]*1.4 and vector[1]>veh.av_vector[0][1]*.6) or (vector[0]<veh.av_vector[0][0]*1.4 and vector[0]>veh.av_vector[0][0]*.6):
+            filtered_vehicles.append(veh)
+            
+    l=[]
+    for veh in filtered_vehicles:
+        if (veh.av_vector[0][1]<MEANDRIFT[0][1]*1.5 and veh.av_vector[0][1]>MEANDRIFT[0][1]*.5) or (veh.av_vector[0][0]<MEANDRIFT[0][0]*1.5 and veh.av_vector[0][0]>MEANDRIFT[0][0]*.5):
+            l.append(veh)
+    
+    filtered_vehicles = l
+    del l
     
     cap = cv2.VideoCapture(IMAGE_SOURCE)
     ret, frame = cap.read()
+    frame2 = frame.copy()
     
     for (i, veh) in enumerate(VEHICLES):
         veh_num = len(VEHICLES)
@@ -342,12 +403,36 @@ def main():
             
         for pos in veh.positions:
             cv2.circle(frame, pos[0], 10, colorcode, 5)
-            cv2.putText(frame, str(pos[1]), fontFace = cv2.FONT_HERSHEY_SIMPLEX, color = (0,0,0), org = (pos[0][0]+20, pos[0][1]+20), fontScale = 3, thickness = 2)
+            cv2.putText(frame, '%i,%i' % (pos[1],veh.id), fontFace = cv2.FONT_HERSHEY_SIMPLEX, color = (0,0,0), org = (pos[0][0]+20, pos[0][1]+20), fontScale = 2, thickness = 2)
            
-    save_frame(IMAGE_DIR + "/marked_veh%i.png"
+    #add drift direction to image       
+    cv2.line(frame, (int(frame_width-200), 200), (int(frame_width-200 - 1000*np.tan(np.radians(MEANDRIFT[0][1]))), 1000+200), (255,0,0), 5)
+    
+    save_frame(IMAGE_DIR + "/marked_veh_all%i.png"
             ,1, frame, "marked all cars %i")
     
     
+    for (i, veh) in enumerate(filtered_vehicles):
+        veh_num = len(filtered_vehicles)
+        color=255-255*i/veh_num
+        colorcode = (255-255*i/(veh_num/3), 0, 0)
+        
+        if i>veh_num/3 and i<veh_num*2/3:
+            i = int(i-(veh_num/3)+1)
+            colorcode = (0,255-255*i/(veh_num/3), 0)
+        elif i>=veh_num*2/3:
+            i = int(i-(veh_num/3)+1)
+            colorcode = (0,0,255-255*i/(veh_num/3))
+            
+        for pos in veh.positions:
+            cv2.circle(frame2, pos[0], 10, colorcode, 5)
+            cv2.putText(frame2, '%i,%i' % (pos[1],veh.id), fontFace = cv2.FONT_HERSHEY_SIMPLEX, color = (0,0,0), org = (pos[0][0]+20, pos[0][1]+20), fontScale = 2, thickness = 2)
+           
+    #add drift direction to image       
+    cv2.line(frame2, (int(frame_width-200), 200), (int(frame_width-200 - 1000*np.tan(np.radians(MEANDRIFT[0][1]))), 1000+200), (255,0,0), 5)
+    
+    save_frame(IMAGE_DIR + "/marked_veh_filtered%i.png"
+            ,1, frame2, "marked all cars %i")
             
     
     
