@@ -17,3 +17,7 @@ _Package to detect and track floating ice sheets in the ocean from video frames_
 - verstehen wie find_contour Objecte wahrnimmt
 - version einbauen, dass der user spez. Kante definieren kann, die getrackt wird
 - layout
+
+
+### state of tracking results
+<img src="tracked_ice_ex.png">
