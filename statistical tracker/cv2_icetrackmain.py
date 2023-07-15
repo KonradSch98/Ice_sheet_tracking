@@ -6,7 +6,7 @@ import sys
 import cv2
 import numpy as np
 
-from cv2_icetrackclass_csrt_reset_drift import VehicleCounter
+from cv2_icetrackclass_csrt_reset_drift import ObjectTrackerClass
 from skimage.filters import threshold_otsu
 
 import matplotlib
@@ -35,7 +35,7 @@ LOG_TO_FILE = True
 # Colours for drawing on processed frames    
 BOUNDING_BOX_COLOUR = (255, 0, 0)
 CENTROID_COLOUR = (0, 0, 255)
-VEHICLES = None
+OBJECTS = None
 
 MEANDRIFT = np.zeros(2,list)
 
@@ -117,9 +117,23 @@ def get_centroid(x, y, w, h):
 
 
 
-def detect_vehicles(fg_mask,shape, frame_number, frame):
-    
-    log = logging.getLogger("detect_vehicles")
+def DetectObject(binary_mask,shape, frame_number, frame):
+    """
+    detecting and filtering contours/objects in the frame
+
+    Args:
+        binary_mask ([np.ndarray]): binary image mask
+        shape ([list(int)]): img dimensions
+        frame_number ([int]): index of current frame
+        frame ([np.ndarray]): current frame
+
+    Returns:
+        [list(lists)]: list of all foundings (bbox, centroid, frame_nr)
+    """
+
+
+
+    log = logging.getLogger("DetectObject")
 
     MIN_CONTOUR_WIDTH = 80
     MIN_CONTOUR_HEIGHT = 80
@@ -127,14 +141,17 @@ def detect_vehicles(fg_mask,shape, frame_number, frame):
     MAX_CONTOUR_HEIGHT = shape[0]/2
     
     
-    # Find the contours of any vehicles in the image
-    contours, hierarchy = cv2.findContours(fg_mask
+    # Find the contours of any object/ice in the image
+    contours, hierarchy = cv2.findContours(binary_mask
         , cv2.RETR_EXTERNAL
         , cv2.CHAIN_APPROX_SIMPLE)
 
-    log.debug("Found %d vehicle contours.", len(contours))
+    log.debug("Found %d objects contours.", len(contours))
 
-    matches = []
+    #list of valid objects in current frame
+    foundings = []
+
+    # check for contour thresholds
     for (i, contour) in enumerate(contours):
         (x, y, w, h) = cv2.boundingRect(contour)
         contour_valid = (w >= MIN_CONTOUR_WIDTH) and (h >= MIN_CONTOUR_HEIGHT) and (w <= MAX_CONTOUR_WIDTH) and (h <= MAX_CONTOUR_HEIGHT)
@@ -142,15 +159,11 @@ def detect_vehicles(fg_mask,shape, frame_number, frame):
         if contour_valid == True:
             log.debug("Contour #%d: pos=(x=%d, y=%d) size=(w=%d, h=%d) valid=%s"
                 , i, x, y, w, h, contour_valid)
+            
+            centroid = get_centroid(x, y, w, h)         #centroid of current contour
+            foundings.append(((x, y, w, h), centroid, frame_number))
 
-        if not contour_valid:
-            continue
-
-        centroid = get_centroid(x, y, w, h)
-
-        matches.append(((x, y, w, h), centroid, frame_number))
-
-    return matches
+    return foundings
 
 
 
@@ -162,12 +175,21 @@ def detect_vehicles(fg_mask,shape, frame_number, frame):
 
 
 
-def filter_mask(fg_mask):
+def filter_mask(binary_mask):
+    """
+    refine binary mask
+
+    Args:
+        binary_mask ([np.ndarray]): binary image mask
+
+    Returns:
+        [np.ndarray]: refined binary mask
+    """
     
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     
     # remove small ice particles / shrink
-    erosion = cv2.erode(fg_mask, kernel, iterations = 4)
+    erosion = cv2.erode(binary_mask, kernel, iterations = 4)
     
     #resize ice space
     dilation = cv2.dilate(erosion, kernel, iterations = 2)
@@ -184,13 +206,21 @@ def filter_mask(fg_mask):
 
 
 
-def drift(Vehicles):
+def drift(OBJECTS):
+    """
+    class to calculate the mean drift of all known Objects
+    using their ongoingly calculated mean drift
+
+    Args:
+        OBJECTS ([list(ObjectClass items)]): list of all known Objects so far
+    """
+
     global MEANDRIFT
 
     drift_n = MEANDRIFT[0]
     index_n = MEANDRIFT[1]
     
-    for Vehicle in Vehicles:
+    for Vehicle in OBJECTS:
 
         vector_n1 = np.array(Vehicle.av_vector[0])
         offset = ( vector_n1 -  drift_n) / (index_n + 1)
@@ -212,9 +242,21 @@ def drift(Vehicles):
 
 
 
-def process_frame(frame_number, frame, car_counter):
+def process_frame(frame_number, frame, ObjectCounter):
+    """
+    prepare frame, detect objects via binary contours
+    call assignment class 
+
+    Args:
+        frame_number ([int]): index of current frame
+        frame ([np.ndarray]): current frame
+        ObjectCounter ([class]): Object assignment class
+
+    Returns:
+        [np.ndarray]: current frame with marked foundings
+    """
     
-    global VEHICLES 
+    global OBJECTS 
     
     
     log = logging.getLogger("process_frame")
@@ -223,57 +265,50 @@ def process_frame(frame_number, frame, car_counter):
     processed = frame.copy()
 
     # Remove the background
-    #fg_mask = bg_subtractor.apply(frame, None, 0.01)
+    #binary_mask = bg_subtractor.apply(frame, None, 0.01)
     
+    #prepare treshold
     grey = rgb2gray(processed)
     otsu_thresh = threshold_otsu(grey)*1.1
-    fg_mask = grey<otsu_thresh
+    binary_mask = grey<otsu_thresh
     
     #binary version
-    fg_mask = invert(fg_mask)
-    fg_mask.dtype='uint8'
-    fg_mask = filter_mask(fg_mask)
+    binary_mask = invert(binary_mask)
+    binary_mask.dtype='uint8'
+    #filter need uint8 type not bool
+    binary_mask = filter_mask(binary_mask)
     
-    #contur version
-    #fg_mask = fg_mask ^ ndimage.binary_dilation(fg_mask)
+    #only binary contur version
+    #binary_mask = binary_mask ^ ndimage.binary_dilation(binary_mask)
     
     save_frame(IMAGE_DIR + "/mask_%04d.png"
-        , frame_number, fg_mask*255, "foreground mask for frame #%d")
+        , frame_number, binary_mask*255, "foreground mask for frame #%d")
+
+    #find objects in frame
+    foundings = DetectObject(binary_mask, frame.shape, frame_number, frame)
+
+    #update and assign foundings and Objects
+    log.debug("Updating object count in frame %i...", frame_number)
+    OBJECTS = ObjectCounter.UpdateCount(foundings, frame_number, binary_mask, processed)
+
+    #print all found and saved Objects on frame
+    foundings = []
+    for Obj in OBJECTS:
+        if Obj.LastPosition[1] == frame_number:
+            foundings.append((Obj.id, Obj.LastContour, Obj.LastPosition[0], Obj.LastPosition[1]))
     
-    #fg_mask.dtype='uint8'
-    #fg_mask = filter_mask(fg_mask)
-
-    #fg_mask = invert(fg_mask)
-    matches = detect_vehicles(fg_mask, frame.shape, frame_number, frame)
-
-
-    log.debug("Updating vehicle count...")
-    VEHICLES = car_counter.update_count(matches, frame_number, fg_mask, processed)
-
-
-
-    matches = []
-    for veh in VEHICLES:
-        if veh.last_position[1] == frame_number:
-            matches.append((veh.last_contour, veh.last_position[0], veh.last_position[1]))
-    
-    
-
-
-
-    log.debug("Found %d valid vehicle contours.", len(matches))
-    for (i, match) in enumerate(matches):
-        contour, centroid, frame_number = match
+    log.debug("Found %d valid vehicle contours.", len(foundings))
+    for (i, found_ob) in enumerate(foundings):
+        id, contour, centroid, frame_number = found_ob
 
         log.debug("Valid vehicle contour #%d: centroid=%s, bounding_box=%s", i, centroid, contour)
 
         x, y, w, h = contour
 
         # Mark the bounding box and the centroid on the processed frame
-        # NB: Fixed the off-by one in the bottom right corner
         cv2.rectangle(processed, (x, y), (x + w - 1, y + h - 1), BOUNDING_BOX_COLOUR, 1)
         cv2.circle(processed, centroid, 2, CENTROID_COLOUR, -1)
-        cv2.putText(processed, str(frame_number), fontFace = cv2.FONT_HERSHEY_SIMPLEX, color = (0,0,0), org = (centroid[0]+20, centroid[1]+20), fontScale = 3, thickness = 2)
+        cv2.putText(processed, str(id), fontFace = cv2.FONT_HERSHEY_SIMPLEX, color = (0,0,0), org = (centroid[0]+20, centroid[1]+20), fontScale = 3, thickness = 2)
     
 
     return processed
@@ -292,19 +327,16 @@ def main():
 
 
     ## könnte hier einen background substractor bauen indem ich von einem anfangsbild die konturen (vom schiff)
-    ##speichere und die nächsten male abziehe
-    log.debug("Creating background subtractor...")
+    ## speichere und die nächsten male abziehe
+    #log.debug("Creating background subtractor...")
     #bg_subtractor = cv2.createBackgroundSubtractorMOG2()
-
-    log.debug("Pre-training the background subtractor...")
+    #log.debug("Pre-training the background subtractor...")
     #default_bg = cv2.imread(IMAGE_FILENAME_FORMAT % 33)
     #bg_subtractor.apply(default_bg, None, 1.0)
 
 
 
-
-
-    car_counter = None # Will be created after first frame is captured
+    ObjectCounter = None # Will be created after first frame is captured
 
     # Set up image source
     log.debug("Initializing video capture device #%s...", IMAGE_SOURCE)
@@ -326,10 +358,10 @@ def main():
 
         log.debug("Got frame #%d: shape=%s", frame_number, frame.shape)
 
-        if car_counter is None:
+        if ObjectCounter is None:
             # We do this here, so that we can initialize with actual frame size
             log.debug("Creating vehicle counter...")
-            car_counter = VehicleCounter(frame.shape[:2], frame.shape[0] / 7)
+            ObjectCounter = ObjectTrackerClass(frame.shape[:2])
 
 
         # Archive raw frames from video to disk for later inspection/testing
@@ -338,8 +370,9 @@ def main():
                 , frame_number, frame, "source frame #%d")
 
 
+#########
         log.debug("Processing frame #%d...", frame_number)
-        processed = process_frame(frame_number, frame, car_counter)
+        processed = process_frame(frame_number, frame, ObjectCounter)
 
 
 
@@ -365,21 +398,21 @@ def main():
     cv2.destroyAllWindows()
     
     
-    VEHICLES[:] = [ v for v in VEHICLES
+    OBJECTS[:] = [ v for v in OBJECTS
             if len(v.positions)>=4]
     
-    drift(VEHICLES)
+    drift(OBJECTS)
     
     filtered_vehicles = []
-    for veh in VEHICLES:
-        vector = (np.array(veh.positions[-1][0])-np.array(veh.positions[0][0]))/len(veh.positions)
+    for Obj in OBJECTS:
+        vector = (np.array(Obj.positions[-1][0])-np.array(Obj.positions[0][0]))/len(Obj.positions)
         vector = (abs(vector[0]), vector[1])
-        if (vector[1]<veh.av_vector[0][1]*1.4 and vector[1]>veh.av_vector[0][1]*.6) or (vector[0]<veh.av_vector[0][0]*1.4 and vector[0]>veh.av_vector[0][0]*.6):
+        if (vector[1]<Obj.av_vector[0][1]*1.4 and vector[1]>Obj.av_vector[0][1]*.6) or (vector[0]<Obj.av_vector[0][0]*1.4 and vector[0]>Obj.av_vector[0][0]*.6):
             filtered_vehicles.append(veh)
             
     l=[]
-    for veh in filtered_vehicles:
-        if (veh.av_vector[0][1]<MEANDRIFT[0][1]*1.5 and veh.av_vector[0][1]>MEANDRIFT[0][1]*.5) or (veh.av_vector[0][0]<MEANDRIFT[0][0]*1.5 and veh.av_vector[0][0]>MEANDRIFT[0][0]*.5):
+    for Obj in filtered_vehicles:
+        if (Obj.av_vector[0][1]<MEANDRIFT[0][1]*1.5 and Obj.av_vector[0][1]>MEANDRIFT[0][1]*.5) or (Obj.av_vector[0][0]<MEANDRIFT[0][0]*1.5 and Obj.av_vector[0][0]>MEANDRIFT[0][0]*.5):
             l.append(veh)
     
     filtered_vehicles = l
@@ -389,8 +422,8 @@ def main():
     ret, frame = cap.read()
     frame2 = frame.copy()
     
-    for (i, veh) in enumerate(VEHICLES):
-        veh_num = len(VEHICLES)
+    for (i, veh) in enumerate(OBJECTS):
+        veh_num = len(OBJECTS)
         color=255-255*i/veh_num
         colorcode = (255-255*i/(veh_num/3), 0, 0)
         
@@ -401,9 +434,9 @@ def main():
             i = int(i-(veh_num/3)+1)
             colorcode = (0,0,255-255*i/(veh_num/3))
             
-        for pos in veh.positions:
+        for pos in Obj.positions:
             cv2.circle(frame, pos[0], 10, colorcode, 5)
-            cv2.putText(frame, '%i,%i' % (pos[1],veh.id), fontFace = cv2.FONT_HERSHEY_SIMPLEX, color = (0,0,0), org = (pos[0][0]+20, pos[0][1]+20), fontScale = 2, thickness = 2)
+            cv2.putText(frame, '%i,%i' % (pos[1],Obj.id), fontFace = cv2.FONT_HERSHEY_SIMPLEX, color = (0,0,0), org = (pos[0][0]+20, pos[0][1]+20), fontScale = 2, thickness = 2)
            
     #add drift direction to image       
     cv2.line(frame, (int(frame_width-200), 200), (int(frame_width-200 - 1000*np.tan(np.radians(MEANDRIFT[0][1]))), 1000+200), (255,0,0), 5)
@@ -424,9 +457,9 @@ def main():
             i = int(i-(veh_num/3)+1)
             colorcode = (0,0,255-255*i/(veh_num/3))
             
-        for pos in veh.positions:
+        for pos in Obj.positions:
             cv2.circle(frame2, pos[0], 10, colorcode, 5)
-            cv2.putText(frame2, '%i,%i' % (pos[1],veh.id), fontFace = cv2.FONT_HERSHEY_SIMPLEX, color = (0,0,0), org = (pos[0][0]+20, pos[0][1]+20), fontScale = 2, thickness = 2)
+            cv2.putText(frame2, '%i,%i' % (pos[1],Obj.id), fontFace = cv2.FONT_HERSHEY_SIMPLEX, color = (0,0,0), org = (pos[0][0]+20, pos[0][1]+20), fontScale = 2, thickness = 2)
            
     #add drift direction to image       
     cv2.line(frame2, (int(frame_width-200), 200), (int(frame_width-200 - 1000*np.tan(np.radians(MEANDRIFT[0][1]))), 1000+200), (255,0,0), 5)

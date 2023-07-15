@@ -1,5 +1,5 @@
 import logging
-import math
+
 
 import cv2
 import numpy as np
@@ -144,25 +144,7 @@ class VehicleCounter(object):
         dx = float(b[0] - a[0])
         dy = float(b[1] - a[1])
 
-        distance = math.sqrt(dx**2 + dy**2)
-
-        if dy > 0:
-            angle = math.degrees(math.atan(-dx/dy))
-        elif dy == 0:
-            if dx < 0:
-                angle = 90.0
-            elif dx > 0:
-                angle = -90.0
-            else:
-                angle = 0.0
-        else:
-            if dx < 0:
-                angle = 180 - math.degrees(math.atan(dx/dy))
-            elif dx > 0:
-                angle = -180 - math.degrees(math.atan(dx/dy))
-            else:
-                angle = 180.0        
-
+        distance = np.sqrt(dx**2 + dy**2)
 
 
 
