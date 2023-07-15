@@ -9,14 +9,15 @@ Currently, there are 4 versions in progress:
 1. statistical tracker:
    automatically detects ice floe contours, saves them as objects and inits a tracker on it
    in every next step it assigns and thus updates known objects or creates new
+   added a drift calculation for each single and whole result using for evaluation and result refinement
    works good so far. Some refinement could be made
    Thresholds calibrated with a video and not the correct footage
-2. Roid tracker:
+3. Roid tracker:
    simplest approach
    user selects a roid, software detects elements and user selects the correct one
    user selects roid on a future roid, same procedure and the program calculates
    drift direction and speed
-3. Line tracker:
+4. Line tracker:
    kind of manuel statistical tracker
    useful if no little seperated ice floes are visible
    can thus track huge floes drifting through the FOV
@@ -24,7 +25,7 @@ Currently, there are 4 versions in progress:
    some ice floe
    the software detects and assigns the correct in-image contour to the drawn line
    on future frames detects a similar contour segment and so tracks this drawn line
-4. Mixture of Roid and Line tracker 
+5. Mixture of Roid and Line tracker 
 
 
 ## ToDo
