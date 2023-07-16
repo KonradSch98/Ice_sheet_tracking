@@ -35,8 +35,8 @@ LOG_TO_FILE = True
 # Colours for drawing on processed frames    
 BOUNDING_BOX_COLOUR = (255, 0, 0)
 CENTROID_COLOUR = (0, 0, 255)
-OBJECTS = None
 
+OBJECTS = None
 MEANDRIFT = np.zeros(2,list)
 
 
@@ -81,10 +81,14 @@ def init_logging():
 
 
 
-def save_frame(file_name_format, frame_number, frame, label_format):
+def save_frame(file_name_format, frame, label_format,frame_number=None):
     
-    file_name = file_name_format % frame_number
-    label = label_format % frame_number
+    if frame_number != None:
+        file_name = file_name_format % frame_number
+        label = label_format % frame_number
+    else:
+        file_name = file_name_format
+        label = label_format
 
     log.debug("Saving %s as '%s'", label, file_name)
     cv2.imwrite(file_name, frame)
@@ -208,7 +212,7 @@ def filter_mask(binary_mask):
 
 def drift(OBJECTS):
     """
-    class to calculate the mean drift of all known Objects
+    class to calculate the MEANDRIFT of all known Objects
     using their ongoingly calculated mean drift
 
     Args:
@@ -222,7 +226,7 @@ def drift(OBJECTS):
     
     for Vehicle in OBJECTS:
 
-        vector_n1 = np.array(Vehicle.av_vector[0])
+        vector_n1 = np.array(Vehicle.MeanVector[0])
         offset = ( vector_n1 -  drift_n) / (index_n + 1)
         #update drift
         drift_n += offset
@@ -242,7 +246,7 @@ def drift(OBJECTS):
 
 
 
-def process_frame(frame_number, frame, ObjectCounter):
+def ProcessFrame(frame_number, frame, ObjectCounter):
     """
     prepare frame, detect objects via binary contours
     call assignment class 
@@ -259,7 +263,7 @@ def process_frame(frame_number, frame, ObjectCounter):
     global OBJECTS 
     
     
-    log = logging.getLogger("process_frame")
+    log = logging.getLogger("ProcessFrame")
 
     # Create a copy of source frame to draw into
     processed = frame.copy()
@@ -282,7 +286,7 @@ def process_frame(frame_number, frame, ObjectCounter):
     #binary_mask = binary_mask ^ ndimage.binary_dilation(binary_mask)
     
     save_frame(IMAGE_DIR + "/mask_%04d.png"
-        , frame_number, binary_mask*255, "foreground mask for frame #%d")
+        , binary_mask*255, "foreground mask for frame #%d", frame_number)
 
     #find objects in frame
     foundings = DetectObject(binary_mask, frame.shape, frame_number, frame)
@@ -323,6 +327,12 @@ def process_frame(frame_number, frame, ObjectCounter):
 
 
 def main():
+    """
+    loops over all frames, filteres the recognized Objects
+    and saves them alll on two viduals
+    """
+
+
     log = logging.getLogger("main")
 
 
@@ -346,6 +356,8 @@ def main():
     frame_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
     log.debug("Video capture frame size=(w=%d, h=%d)", frame_width, frame_height)
 
+
+
     log.debug("Starting capture loop...")
     frame_number = -1
     while True:
@@ -367,105 +379,112 @@ def main():
         # Archive raw frames from video to disk for later inspection/testing
         if CAPTURE_FROM_VIDEO:
             save_frame(IMAGE_FILENAME_FORMAT
-                , frame_number, frame, "source frame #%d")
+                , frame, "source frame #%d", frame_number)
 
-
-#########
+        #find and treat all Objects 
         log.debug("Processing frame #%d...", frame_number)
-        processed = process_frame(frame_number, frame, ObjectCounter)
+        processed = ProcessFrame(frame_number, frame, ObjectCounter)
 
-
-
+        #archive frame with all valid foundings
         save_frame(IMAGE_DIR + "/processed_%04d.png"
-            , frame_number, processed, "processed frame #%d")
+            , processed, "processed frame #%d", frame_number)
 
-
-
-        cv2.namedWindow('Source Image',  cv2.WINDOW_KEEPRATIO)
         cv2.namedWindow('Processed Image',  cv2.WINDOW_KEEPRATIO)
-        cv2.imshow('Source Image', frame)
         cv2.imshow('Processed Image', processed)
-
         log.debug("Frame #%d processed.", frame_number)
-
         c = cv2.waitKey(WAIT_TIME)
         if c == 27:
             log.debug("ESC detected, stopping...")
             break
 
+
+
     log.debug("Closing video capture device...")
     cap.release()
     cv2.destroyAllWindows()
     
+
+
+    ####### filtering #######
+
+    #filter by length
+    OBJECTS[:] = [ o for o in OBJECTS
+            if len(o.Positions)>=4]
     
-    OBJECTS[:] = [ v for v in OBJECTS
-            if len(v.positions)>=4]
-    
-    drift(OBJECTS)
-    
-    filtered_vehicles = []
+    #filter by compare start-end difference with their MeanVector for coherence
+    filtered_objects = []
     for Obj in OBJECTS:
-        vector = (np.array(Obj.positions[-1][0])-np.array(Obj.positions[0][0]))/len(Obj.positions)
+        vector = (np.array(Obj.Positions[-1][0])-np.array(Obj.Positions[0][0]))/len(Obj.Positions)
         vector = (abs(vector[0]), vector[1])
-        if (vector[1]<Obj.av_vector[0][1]*1.4 and vector[1]>Obj.av_vector[0][1]*.6) or (vector[0]<Obj.av_vector[0][0]*1.4 and vector[0]>Obj.av_vector[0][0]*.6):
-            filtered_vehicles.append(veh)
-            
-    l=[]
-    for Obj in filtered_vehicles:
-        if (Obj.av_vector[0][1]<MEANDRIFT[0][1]*1.5 and Obj.av_vector[0][1]>MEANDRIFT[0][1]*.5) or (Obj.av_vector[0][0]<MEANDRIFT[0][0]*1.5 and Obj.av_vector[0][0]>MEANDRIFT[0][0]*.5):
-            l.append(veh)
+        if (vector[1]<Obj.MeanVector[0][1]*1.4 and vector[1]>Obj.MeanVector[0][1]*.6) or (vector[0]<Obj.MeanVector[0][0]*1.4 and vector[0]>Obj.MeanVector[0][0]*.6):
+            filtered_objects.append(Obj)
+
+    drift(OBJECTS)
+
+    #filter Objects by coherence to general Meandrift
+    filter_more=[]
+    for Obj in filtered_objects:
+        if (Obj.MeanVector[0][1]<MEANDRIFT[0][1]*1.5 and Obj.MeanVector[0][1]>MEANDRIFT[0][1]*.5) or (Obj.MeanVector[0][0]<MEANDRIFT[0][0]*1.5 and Obj.MeanVector[0][0]>MEANDRIFT[0][0]*.5):
+            filter_more.append(Obj)
     
-    filtered_vehicles = l
-    del l
+    filtered_objects = filter_more
+    del filter_more
     
+
+
+    ####### save visuals #######
+
+    #load first frame to mark all on it
     cap = cv2.VideoCapture(IMAGE_SOURCE)
     ret, frame = cap.read()
     frame2 = frame.copy()
-    
     for (i, veh) in enumerate(OBJECTS):
-        veh_num = len(OBJECTS)
-        color=255-255*i/veh_num
-        colorcode = (255-255*i/(veh_num/3), 0, 0)
+        obj_num = len(OBJECTS)
+        colorcode = (255-255*i/(obj_num/3), 0, 0)
         
-        if i>veh_num/3 and i<veh_num*2/3:
-            i = int(i-(veh_num/3)+1)
-            colorcode = (0,255-255*i/(veh_num/3), 0)
-        elif i>=veh_num*2/3:
-            i = int(i-(veh_num/3)+1)
-            colorcode = (0,0,255-255*i/(veh_num/3))
+        if i<=obj_num/3:
+            i = int(i-(obj_num/3)+1)
+            colorcode = (255-255*i/(obj_num/3), 0,0)
+        elif i>obj_num/3 and i<obj_num*2/3:
+            i = int(i-(obj_num/3)+1)
+            colorcode = (0,255-255*i/(obj_num/3), 0)
+        elif i>=obj_num*2/3:
+            i = int(i-(obj_num/3)+1)
+            colorcode = (0,0,255-255*i/(obj_num/3))
             
-        for pos in Obj.positions:
+        for pos in Obj.Positions:
             cv2.circle(frame, pos[0], 10, colorcode, 5)
             cv2.putText(frame, '%i,%i' % (pos[1],Obj.id), fontFace = cv2.FONT_HERSHEY_SIMPLEX, color = (0,0,0), org = (pos[0][0]+20, pos[0][1]+20), fontScale = 2, thickness = 2)
            
     #add drift direction to image       
     cv2.line(frame, (int(frame_width-200), 200), (int(frame_width-200 - 1000*np.tan(np.radians(MEANDRIFT[0][1]))), 1000+200), (255,0,0), 5)
+    save_frame(IMAGE_DIR + "/marked_obj_all.png"
+            , frame, "marked all Objs")
     
-    save_frame(IMAGE_DIR + "/marked_veh_all%i.png"
-            ,1, frame, "marked all cars %i")
     
-    
-    for (i, veh) in enumerate(filtered_vehicles):
-        veh_num = len(filtered_vehicles)
-        color=255-255*i/veh_num
-        colorcode = (255-255*i/(veh_num/3), 0, 0)
+    #take first frame to mark only filtered
+    for (i, veh) in enumerate(filtered_objects):
+        obj_num = len(filtered_objects)
+        colorcode = (255-255*i/(obj_num/3), 0, 0)
         
-        if i>veh_num/3 and i<veh_num*2/3:
-            i = int(i-(veh_num/3)+1)
-            colorcode = (0,255-255*i/(veh_num/3), 0)
-        elif i>=veh_num*2/3:
-            i = int(i-(veh_num/3)+1)
-            colorcode = (0,0,255-255*i/(veh_num/3))
+        if i<=obj_num/3:
+            i = int(i-(obj_num/3)+1)
+            colorcode = (255-255*i/(obj_num/3), 0,0)
+        elif i>obj_num/3 and i<obj_num*2/3:
+            i = int(i-(obj_num/3)+1)
+            colorcode = (0,255-255*i/(obj_num/3), 0)
+        elif i>=obj_num*2/3:
+            i = int(i-(obj_num/3)+1)
+            colorcode = (0,0,255-255*i/(obj_num/3))
             
-        for pos in Obj.positions:
+        for pos in Obj.Positions:
             cv2.circle(frame2, pos[0], 10, colorcode, 5)
             cv2.putText(frame2, '%i,%i' % (pos[1],Obj.id), fontFace = cv2.FONT_HERSHEY_SIMPLEX, color = (0,0,0), org = (pos[0][0]+20, pos[0][1]+20), fontScale = 2, thickness = 2)
            
     #add drift direction to image       
     cv2.line(frame2, (int(frame_width-200), 200), (int(frame_width-200 - 1000*np.tan(np.radians(MEANDRIFT[0][1]))), 1000+200), (255,0,0), 5)
-    
-    save_frame(IMAGE_DIR + "/marked_veh_filtered%i.png"
-            ,1, frame2, "marked all cars %i")
+    save_frame(IMAGE_DIR + "/marked_obj_filtered.png"
+            , frame2, "marked all filtered Objs")
             
     
     

@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+import logging
 matplotlib.use('TKAgg')
 
 
@@ -62,7 +63,7 @@ class MultiTracker(object):
             [int]: id of updated tracker
         """
 
-        ret, bbox = self.Tracker.Update(frame)
+        ret, bbox = self.Tracker.update(frame)
 
         bbox = [int(i) for i in bbox]
         (x, y, w, h) = bbox
@@ -198,7 +199,7 @@ class ObjectTrackerClass(object):
         Args:
             shape ([type]): [description]
         """
-
+        self.log = logging.getLogger("ObjectTrackerClass")
         self.height, self.width = shape
         self.Objects = []
         self.Trackers = []
@@ -482,7 +483,7 @@ class ObjectTrackerClass(object):
         remove current tracker and make new init
         """
         tracker.remove = True
-        reset_tracker = MultiTracker(id, centroid, self.CurrFrameNumber, contour, frame)
+        reset_tracker = MultiTracker(id, centroid, contour, frame)
         self.Trackers.append(reset_tracker)
 
 
@@ -512,13 +513,13 @@ class ObjectTrackerClass(object):
         
         #if tracker lost: remove and new init
         if bbox is None:
-            self.ResetTracker(self, tracker, id, centroid, contour, frame)
+            self.ResetTracker(tracker, id, centroid, contour, frame)
         
         else:
             bbox_vector = self.GetVector(bbox[1], centroid)
             #if tracker bad, remove and new init
             if bbox_vector[0] > 50:
-                self.ResetTracker(self, tracker, id, centroid, contour, frame)
+                self.ResetTracker( tracker, id, centroid, contour, frame)
             else: tracker.UpdateCond = True 
  
 
@@ -620,7 +621,7 @@ class ObjectTrackerClass(object):
                     Object.AddContour(contour)
                     
                     #reset tracker for constant object (necessary?)
-                    self.ResetTracker(self, tracker, id, centroid, contour, frame)
+                    self.ResetTracker(tracker, id, centroid, contour, frame)
                     
                     if bbox is not None:
                         self.TrBBoxes.remove(bbox)  
@@ -695,16 +696,18 @@ class ObjectTrackerClass(object):
 
 
 
-    def UpdateCount(self, foundings, CurrFrameNumber, frame = None):
+    def UpdateCount(self, foundings, CurrFrameNumber, binary_img, frame = None):
         """
-
+        manages the new foundings 
+        updates trackers, assignes foundings, filters not moving obects
+        inits new foundings and trackers 
 
         Args:
             foundings ([list(contour, centroid, last_frame)]): list of found objects in frame
             CurrFrameNumber ([int]): index of current frame
             frame ([np.ndarray], optional): [description]. Defaults to None.
         Returns:
-
+            ([list(ObjectClass)]): all so far known Objects
         """
 
 
@@ -719,7 +722,7 @@ class ObjectTrackerClass(object):
         #update all tracker
         for tracker in self.Trackers:
             if tracker.UpdateCond == True:
-                ret, bbox, centroid, id = tracker.update(frame)
+                ret, bbox, centroid, id = tracker.Update(binary_img)
                 if ret:
                     self.TrBBoxes.append((bbox, centroid, id))
                 
@@ -757,7 +760,7 @@ class ObjectTrackerClass(object):
             new_obj = ObjectClass(self.next_vehicle_id, centroid, self.CurrFrameNumber, contour)
             self.Objects.append(new_obj)
             
-            new_tracker = MultiTracker(self.next_vehicle_id, centroid, self.CurrFrameNumber, contour, frame)
+            new_tracker = MultiTracker(self.next_vehicle_id, centroid, contour, binary_img)
             self.Trackers.append(new_tracker)
             
             self.next_vehicle_id += 1
@@ -767,8 +770,8 @@ class ObjectTrackerClass(object):
 
         #detect and remove not moving vehicles
         for Object in self.Objects:
+            positions = Object.Positions[-4:]
             if len(positions) == 4:
-                positions = Object.positions[-4:]
                 x_pos = [item[0][0] for item in positions]
                 y_pos = [item[0][1] for item in positions]
                 if (max(x_pos)-min(x_pos))<=30 and (max(y_pos)-min(y_pos))<=30:
