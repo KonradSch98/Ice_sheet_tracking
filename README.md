@@ -13,11 +13,20 @@ Currently, there are 4 versions in progress:
    works good so far. Some refinement could be made
    Thresholds calibrated with a video and not the correct footage
 3. Roid tracker:
-   simplest approach
-   user selects a roid, software detects elements and user selects the correct one
-   user selects roid on a future roid, same procedure and the program calculates
-   drift direction and speed
-4. Line tracker:
+   offers 3 modes:
+   a. Manual Roid:
+      user selects a roid, software detects elements and user selects the correct one
+      user selects roid on a future roid, same procedure and the program calculates
+      drift direction and speed
+   b. manual Line:
+      user selects a roid, user draws contour line, software detects corresp. real contour piece
+      user selects roid on a future roid, same procedure and the program calculates
+      drift direction and speed
+   c. semiautomaticLine:
+      same as above but on the second frame the program tries to identify the corresponding
+      contour on automatically (not very robust so far due to matching sensible to transl./rot./scale)
+      if not manual again
+5. Line tracker:
    kind of manuel statistical tracker
    useful if no little seperated ice floes are visible
    can thus track huge floes drifting through the FOV
@@ -25,7 +34,7 @@ Currently, there are 4 versions in progress:
    some ice floe
    the software detects and assigns the correct in-image contour to the drawn line
    on future frames detects a similar contour segment and so tracks this drawn line
-5. Mixture of Roid and Line tracker 
+ 
 
 
 ## ToDo
