@@ -498,6 +498,15 @@ def main():
 #################################################################################
 
 if __name__ == "__main__":
+    """
+    statistical tracker: automatically detects ice floe contours, saves them as 
+    objects and inits a tracker on it in every next step it assigns and thus 
+    updates known objects or creates new added a drift calculation for each single 
+    and whole result using for evaluation and result refinement works good so far. 
+    Some refinement could be made Thresholds calibrated with a video and not the correct footage
+    """
+    
+    
     log = init_logging()
 
     if not os.path.exists(IMAGE_DIR):

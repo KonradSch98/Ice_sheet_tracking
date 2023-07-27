@@ -113,20 +113,40 @@ def filter_mask(img):
 
 
 def FindMatchingContour(bb_contours, ref, size, widthtol, lentol):
+    """
+    creates a tolerance area around ref contour
+    then checks for every con in bb_contours
+    which points are within this tolerance
+    only returns point groups whos length is within tolerance
 
+    Args:
+        bb_contours (list(np.ndarray)): all contours in the area of 'size'
+        ref (np.ndarray): reference contour to match
+        size (np.ndarray): cropped chosen image piece
+        widthtol (int): radius of tolerance area around ref contour
+        lentol (int): tolerande of length differenc between reference and found contour
+        
+    Returns:
+        list(np.ndarray): list of matching contours
+    """
+
+    #tolerance rectangle
     trsh = np.array([[-widthtol,-widthtol], [widthtol,-widthtol],[widthtol,widthtol], [-widthtol,widthtol]])
-    inside_pts = []
-    for i, con in enumerate(bb_contours):
-        bounding_area = ref-trsh
-        coord = ref[:][:][:][:,0]
-        x = coord[:,0]
-        y = coord[:,1]
-        horizontal = (max(x)-min(x))>(max(y)-min(y))
-        if horizontal:
-            bounding = np.concatenate(([bounding_area[:,0][-1]], np.flipud(bounding_area[:,1]),[bounding_area[:,2][1]], bounding_area[:,3]))
-        else:
-            bounding = np.concatenate((bounding_area[:,0], [bounding_area[:,1][-1]] , np.flipud(bounding_area[:,2]), [bounding_area[:,3][0]]))
-        path = Path.Path(bounding)
+    bounding_area = ref-trsh
+    coord = ref[:][:][:][:,0]
+    x = coord[:,0]
+    y = coord[:,1]
+    horizontal = (max(x)-min(x))>(max(y)-min(y))
+    #stack points in bounding_area in ongoing bounding line
+    if horizontal:
+        bounding = np.concatenate(([bounding_area[:,0][-1]], np.flipud(bounding_area[:,1]),[bounding_area[:,2][1]], bounding_area[:,3]))
+    else:
+        bounding = np.concatenate((bounding_area[:,0], [bounding_area[:,1][-1]] , np.flipud(bounding_area[:,2]), [bounding_area[:,3][0]]))
+    path = Path.Path(bounding)
+    
+    #check points in each contour    
+    inside_pts = []    
+    for i, con in enumerate(bb_contours):    
         con_pts = con[:][:][:][:,0]
         try:
             inside_bin = path.contains_points(con_pts)
@@ -187,17 +207,6 @@ def FindContoursinBbox(input_bbox, contours):
 
 
 
-
-
-
-
-
-#####################################
-#####################################
-
-
-
-
 def CheckContour(bb_contours, ref, size, tol, Mode=None):
     """
     calls fct FindMatchingContour
@@ -248,6 +257,7 @@ def CheckContour(bb_contours, ref, size, tol, Mode=None):
             binary = filter_mask(size)
             
             bb_contours, hierarchy = cv2.findContours(binary, cv2.RETR_EXTERNAL , cv2.CHAIN_APPROX_SIMPLE)
+            
     return True, matchCont
 
 
@@ -260,6 +270,26 @@ def CheckContour(bb_contours, ref, size, tol, Mode=None):
 
 
 def ProcessFrame(img, Mode=None):
+    """
+    User selects roid area
+    Mode='Roid':
+        detects contours in area
+        user selects contour
+    Mode='Line':
+        user draws line on area
+        detects matching contour
+
+    Args:
+        img (np.ndarray): current frame
+        Mode (str, optional): 'Line' or 'Roid'. Defaults to None.
+
+    Returns:
+        np.ndarray : _description_
+        list(int) : bbox of reduced area/roid 
+        np.ndarray : reduced image area
+        tuple(int), for 'Roid' : centroid (x,y)
+    """
+    
 
     if Mode==None:
         exit("ERROR: No 'ProcessFrame' Mode was passed.")
@@ -277,15 +307,14 @@ def ProcessFrame(img, Mode=None):
     size = ImgBox[bbox[1]:bbox[1]+bbox[3],bbox[0]:bbox[0]+bbox[2]]
     tol = int(min(40,size.shape[0]/20, size.shape[1]/20 ))
     binary = filter_mask(size)
-    print("Please draw from l->r or from u->d.")
-    
+
     bb_contours, hierarchy = cv2.findContours(binary, cv2.RETR_EXTERNAL , cv2.CHAIN_APPROX_SIMPLE) 
     
-
 
     if Mode == 'Roid':
         centroids = []
         printimg = size.copy()
+        #mark all contours in area
         for i, c in enumerate(bb_contours):
             M = cv2.moments(c)
             cx = int(M['m10']/M['m00'])
@@ -295,6 +324,7 @@ def ProcessFrame(img, Mode=None):
             cv2.circle(printimg, (cx,cy), 2, (255,0,0), -1)
             cv2.putText(printimg, str(i), (cx-10, cy-10),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1 )
         
+        #user choice
         cv2.namedWindow('select contour',  cv2.WINDOW_NORMAL)
         cv2.setWindowProperty('select contour', cv2.WND_PROP_TOPMOST, 1)
         cv2.imshow('select contour', printimg)
@@ -318,9 +348,11 @@ def ProcessFrame(img, Mode=None):
 
 
     elif Mode == 'Line':
+        print("Please draw from l->r or from u->d.")
         drawing = Draw_Application(binary).start()
         ret, matchCont = CheckContour(bb_contours, drawing, size, tol)
         return matchCont, bbox, size
+    
     else:
         exit("ERROR: unknown 'ProcessFrame' Mode was passed.")
 
@@ -439,6 +471,16 @@ def SemiAutomaticLine(img, index, Contours):
 
 
 if __name__ == '__main__':
+    """
+    Roid tracker: 
+    offers 3 modes: 
+    a. Manual Roid: user selects a roid, software detects elements and user selects the correct one 
+        user selects roid on a future roid, same procedure and the program calculates drift direction and speed 
+    b. manual Line: user selects a roid, user draws contour line, software detects corresp. real contour piece 
+        user selects roid on a future roid, same procedure and the program calculates drift direction and speed 
+    c. semiautomaticLine: same as above but on the second frame the program tries to identify the corresponding 
+        contour on automatically (not very robust so far due to matching sensible to transl./rot./scale) if not manual again
+    """
     
     Centroids = []
     Contours = []
@@ -452,11 +494,11 @@ if __name__ == '__main__':
     
     for index in (0,1):
     
-    
+        #get image
         path, fname, Gopro_id, fdir, DirSize = GetDir()    
         img = cv2.imread(path)
 
-
+        #call processing mode
         if TRACKINGMODE == 'ManuelLine':
             matchCont, bbox, size = ProcessFrame(img, Mode='Line')
             M = cv2.moments(matchCont[0])
@@ -468,14 +510,14 @@ if __name__ == '__main__':
         elif TRACKINGMODE == 'ManuelROID':
             matchCont, bbox, size, centroid = ProcessFrame(img, Mode='Roid')    
         
-       
+        #save information
         Centroids.append(centroid)
         Contours.append(matchCont[0]+[bbox[0],bbox[1]]) 
         Bboxes.append(bbox) 
         if TRACKINGMODE == 'ManuelROID':
             Area.append(cv2.contourArea(Contours[index]))
 
-
+        #save image  with information
         printimg = img.copy()
         #save processed image
         cv2.drawContours(printimg, Contours[index], -1, (0,255,0), 2)
@@ -483,7 +525,6 @@ if __name__ == '__main__':
         cv2.circle(printimg, (cx,cy), 2, (255,0,0), -1)
         cv2.putText(printimg, str(index), (cx-10, cy-10),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1 )
         cv2.imwrite(fdir + "/" + fname + "_cut.jpg" ,printimg)
-
 
 
         #find time stamp
@@ -515,7 +556,6 @@ if __name__ == '__main__':
         
         
         
-
         #find pixel size            
         try:
             size_file = glob.glob(os.path.join(fdir, Gopro_id) + "*.txt")[0]
@@ -539,7 +579,7 @@ if __name__ == '__main__':
         ShapeSize.append(PixelSqSize*Area[index])
   
 
-   
+    #process general movement information
     deltatime = Times[1]-Times[0]
     print("Time difference: " + str(deltatime.total_seconds()) + " sec")
     dx = Centroids[1][0]-Centroids[0][0]
