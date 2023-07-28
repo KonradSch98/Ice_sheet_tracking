@@ -58,7 +58,14 @@ Currently, there are 4 versions in progress: <br />
 
 ## state of tracking results
 ### Statistical Tracker results
-<img src="tracked_ice_ex.png">
+#### All detected Objects with minLen
+<img src="statistical tracker/1allminLen4Objects.png">
+
+#### Filtered Objects by consistent movement
+<img src="statistical tracker/2filterinconsitlmovingObj.png">
+
+#### All filtered Objects by mean drift
+<img src="statistical tracker/4CompletfilteredObj.png">
 
 ### Line Tracker matching
 <img src="Line_tracker/found_shifted_match.png">
