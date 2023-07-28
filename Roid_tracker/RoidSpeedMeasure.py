@@ -258,7 +258,7 @@ def CheckContour(bb_contours, ref, size, tol, Mode=None):
             
             bb_contours, hierarchy = cv2.findContours(binary, cv2.RETR_EXTERNAL , cv2.CHAIN_APPROX_SIMPLE)
             
-    return True, matchCont
+    return True, matchCont[0]
 
 
 
@@ -336,7 +336,11 @@ def ProcessFrame(img, Mode=None):
         while True:
             try: 
                 number = int(number)
-                break
+                if number < len(centroids):
+                    break
+                else: 
+                    print('Please enter the int again.')
+                    number = input()
             except:
                 print('Please enter the int again.')
                 number = input() 
@@ -409,7 +413,7 @@ def SemiAutomaticLine(img, index, Contours):
         ImageGray = cv2.cvtColor(NewConImg, cv2.COLOR_BGR2GRAY)
         del NewConImg
 
-        #try to identtify some matching area
+        #try to identify some matching area
         try:
             #find matching area from ref in new
             result = cv2.matchTemplate(ImageGray, RefGray,cv2.TM_CCOEFF_NORMED)
@@ -455,7 +459,7 @@ def SemiAutomaticLine(img, index, Contours):
             matchCont, bbox, size = ProcessFrame(img, Mode='Line')
     
 
-    M = cv2.moments(Contours[index-1])
+    M = cv2.moments(matchCont)
     cx = int(M['m10']/M['m00'])+bbox[0]
     cy = int(M['m01']/M['m00'])+bbox[1]
     
@@ -501,18 +505,19 @@ if __name__ == '__main__':
         #call processing mode
         if TRACKINGMODE == 'ManuelLine':
             matchCont, bbox, size = ProcessFrame(img, Mode='Line')
-            M = cv2.moments(matchCont[0])
+            M = cv2.moments(matchCont)
             cx = int(M['m10']/M['m00'])+bbox[0]
             cy = int(M['m01']/M['m00'])+bbox[1]
             centroid = (cx, cy)
         elif TRACKINGMODE == 'SemiAutomaticLine':
-            matchCont, bbox, size, centroid = SemiAutomaticLine(img, index, Contours)
+            matchCont, bbox, size, centroid = SemiAutomaticLine(img, index,Contours)
         elif TRACKINGMODE == 'ManuelROID':
             matchCont, bbox, size, centroid = ProcessFrame(img, Mode='Roid')    
         
         #save information
         Centroids.append(centroid)
-        Contours.append(matchCont[0]+[bbox[0],bbox[1]]) 
+        globalcont = [matchCont]
+        Contours.append(matchCont+[bbox[0],bbox[1]]) 
         Bboxes.append(bbox) 
         if TRACKINGMODE == 'ManuelROID':
             Area.append(cv2.contourArea(Contours[index]))
@@ -520,10 +525,10 @@ if __name__ == '__main__':
         #save image  with information
         printimg = img.copy()
         #save processed image
-        cv2.drawContours(printimg, Contours[index], -1, (0,255,0), 2)
+        cv2.drawContours(printimg, [Contours[index]], -1, (0,255,0), 2)
         #cv2.rectangle(printimg, (bbox[0], bbox[1]), (bbox[0]+bbox[2],bbox[1]+bbox[3]), (255,0,0), 3)
-        cv2.circle(printimg, (cx,cy), 2, (255,0,0), -1)
-        cv2.putText(printimg, str(index), (cx-10, cy-10),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1 )
+        cv2.circle(printimg, centroid, 2, (255,0,0), -1)
+        cv2.putText(printimg, str(index), (centroid[0]-10, centroid[1]-10),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1 )
         cv2.imwrite(fdir + "/" + fname + "_cut.jpg" ,printimg)
 
 
@@ -561,9 +566,8 @@ if __name__ == '__main__':
             size_file = glob.glob(os.path.join(fdir, Gopro_id) + "*.txt")[0]
             size_file = open(size_file, 'r')
             PixelSqSize = float(size_file.readline())
-            PixelSize = float(size_file.readline())
-            
-        except FileNotFoundError:
+            PixelSize = float(size_file.readline())  
+        except:
             print("Please enter the pixelsize in mtr of the given Image:")
             size = input()
             while True:
@@ -573,10 +577,21 @@ if __name__ == '__main__':
                 except:
                     print("Please enter the pixelsize in mtr again.")
                     size = input()
+            if TRACKINGMODE == 'ManuelROID':
+                print("Please enter the square pixelsize in mtr of the given Image:")
+                size = input()
+                while True:
+                    try: 
+                        PixelSqSize = float(size)
+                        break
+                    except:
+                        print("Please enter the pixelsize in mtr again.")
+                        size = input()
 
 
         Times.append(datetime_object)
-        ShapeSize.append(PixelSqSize*Area[index])
+        if TRACKINGMODE == 'ManuelROID':
+            ShapeSize.append(PixelSqSize*Area[index])
   
 
     #process general movement information

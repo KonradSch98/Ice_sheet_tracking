@@ -6,7 +6,7 @@ import sys
 import cv2
 import numpy as np
 
-from cv2_icetrackclass_csrt_reset_drift import ObjectTrackerClass
+from cv2_icetrackclass import ObjectTrackerClass
 from skimage.filters import threshold_otsu
 
 import matplotlib
@@ -234,6 +234,7 @@ def drift(OBJECTS):
         
     MEANDRIFT[0] = drift_n
     MEANDRIFT[1] = index_n
+    MEANDRIFT = MEANDRIFT[0]
 
 
 
@@ -438,7 +439,7 @@ def main():
     cap = cv2.VideoCapture(IMAGE_SOURCE)
     ret, frame = cap.read()
     frame2 = frame.copy()
-    for (i, veh) in enumerate(OBJECTS):
+    for (i, Obj) in enumerate(OBJECTS):
         obj_num = len(OBJECTS)
         colorcode = (255-255*i/(obj_num/3), 0, 0)
         
@@ -463,7 +464,7 @@ def main():
     
     
     #take first frame to mark only filtered
-    for (i, veh) in enumerate(filtered_objects):
+    for (i, Obj) in enumerate(filtered_objects):
         obj_num = len(filtered_objects)
         colorcode = (255-255*i/(obj_num/3), 0, 0)
         
@@ -487,7 +488,8 @@ def main():
             , frame2, "marked all filtered Objs")
             
     
-    
+    print('The mean drift of detected floes is ... (veloc., angle)')
+    print(MEANDRIFT)
     log.debug("Done.")
 
 
