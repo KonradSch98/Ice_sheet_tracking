@@ -22,10 +22,12 @@ Currently, there are 4 versions in progress: <br />
       user selects a roid, user draws contour line, software detects corresp. real contour piece
       user selects roid on a future roid, same procedure and the program calculates
       drift direction and speed <br />
+      might be useful to add some features from Line Tracker ... area reduction / hu moments (if working) <br />
    c. semiautomaticLine: <br />
       same as above but on the second frame the program tries to identify the corresponding
       contour on automatically (not very robust so far due to matching sensible to transl./rot./scale)
-      if not manual again <br />
+      if not: manual again <br />
+      might be useful to add some features from Line Tracker ... area reduction / hu moments (if working) <br />
 5. Line tracker: <br />
    kind of manuel statistical tracker
    useful if no little seperated ice floes are visible
@@ -47,6 +49,7 @@ Currently, there are 4 versions in progress: <br />
 
 - make line tracker more robust
       - check and correct hu moment matching
+- add line tracker features to roidtracker
 - bilder mit sättigung verfeinern?!
 - aktuelle version fertig mit anzeigen in einzelnen frames etc
     - nochmal mit contour_binary input testen
