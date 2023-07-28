@@ -68,6 +68,13 @@ Currently, there are 4 versions in progress: <br />
 <img src="statistical tracker/4CompletfilteredObj.png">
 
 ### Line Tracker matching
+#### Line matching method
+<img src="Line_tracker/findmatchingcontourexample.png"> 
+red - drawn line <br />
+yellow - found contours <br />
+pink - tolerance area for matching <br />
+
+#### Match found in shifted frame
 <img src="Line_tracker/found_shifted_match.png">
 
 ### user line input
